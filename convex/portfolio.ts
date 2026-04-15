@@ -135,32 +135,25 @@ export const listUserRepoStates = query({
       .withIndex("by_authUserId", (q) => q.eq("authUserId", args.authUserId))
       .collect();
 
-    const repoIds = [...new Set(states.map((state) => state.repoId))];
-    const repos = await Promise.all(repoIds.map((repoId) => ctx.db.get(repoId)));
-    const fullNameByRepoId = new Map(
-      repos
-        .filter((repo): repo is NonNullable<typeof repo> => Boolean(repo))
-        .map((repo) => [repo._id, repo.fullName])
-    );
-
-    return states.flatMap((state) => {
-      const repoFullName = fullNameByRepoId.get(state.repoId);
+    const results = [];
+    for (const state of states) {
+      let repoFullName = state.repoFullName;
       if (!repoFullName) {
-        return [];
+        const repo = await ctx.db.get(state.repoId);
+        if (!repo) continue;
+        repoFullName = repo.fullName;
       }
-
-      return [
-        {
-          repoFullName,
-          state: state.state,
-          starredAt: state.starredAt,
-          lastViewedAt: state.lastViewedAt,
-          lastTouchedAt: state.lastTouchedAt,
-          tags: state.tags,
-          noteCount: state.noteCount,
-        },
-      ];
-    });
+      results.push({
+        repoFullName,
+        state: state.state,
+        starredAt: state.starredAt,
+        lastViewedAt: state.lastViewedAt,
+        lastTouchedAt: state.lastTouchedAt,
+        tags: state.tags,
+        noteCount: state.noteCount,
+      });
+    }
+    return results;
   },
 });
 
@@ -183,12 +176,11 @@ export const listUserNotes = query({
       .withIndex("by_authUserId_repoId", (q) => q.eq("authUserId", args.authUserId))
       .collect();
 
-    const repoIds = [...new Set(notes.map((note) => note.repoId))];
-    const repos = await Promise.all(repoIds.map((repoId) => ctx.db.get(repoId)));
+    if (notes.length === 0) return [];
+
+    const allRepos = await ctx.db.query("repoCatalog").collect();
     const fullNameByRepoId = new Map(
-      repos
-        .filter((repo): repo is NonNullable<typeof repo> => Boolean(repo))
-        .map((repo) => [repo._id, repo.fullName])
+      allRepos.map((repo) => [repo._id, repo.fullName])
     );
 
     return notes.flatMap((note) => {
@@ -230,12 +222,9 @@ export const listPortfolioEvents = query({
       .order("desc")
       .collect();
 
-    const repoIds = [...new Set(events.map((event) => event.repoId).filter(Boolean))];
-    const repos = await Promise.all(repoIds.map((repoId) => ctx.db.get(repoId!)));
+    const allRepos = await ctx.db.query("repoCatalog").collect();
     const fullNameByRepoId = new Map(
-      repos
-        .filter((repo): repo is NonNullable<typeof repo> => Boolean(repo))
-        .map((repo) => [repo._id, repo.fullName])
+      allRepos.map((repo) => [repo._id, repo.fullName])
     );
 
     return events.map((event) => ({
@@ -522,6 +511,7 @@ export const upsertStarEdges = mutation({
 
       if (existing) {
         await ctx.db.patch(existing._id, {
+          repoFullName: repo.fullName,
           state: existing.state,
           starredAt: existing.starredAt ?? edge.starredAt,
           lastTouchedAt: args.touchedAt,
@@ -535,6 +525,7 @@ export const upsertStarEdges = mutation({
       await ctx.db.insert("userRepoStates", {
         authUserId: args.authUserId,
         repoId: repo._id,
+        repoFullName: repo.fullName,
         state: "saved",
         starredAt: edge.starredAt,
         lastViewedAt: undefined,

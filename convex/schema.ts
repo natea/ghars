@@ -71,6 +71,7 @@ export default defineSchema({
   userRepoStates: defineTable({
     authUserId: v.string(),
     repoId: v.id("repoCatalog"),
+    repoFullName: v.optional(v.string()),
     state: repoState,
     starredAt: v.number(),
     lastViewedAt: v.optional(v.number()),
