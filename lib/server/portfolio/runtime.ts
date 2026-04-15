@@ -2,7 +2,6 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs, rmSync } from "node:fs";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "@/convex/_generated/api";
 import type {
   GitHubStarPage,
   OverviewMetrics,
@@ -19,6 +18,11 @@ import type {
 } from "@/lib/domain/types";
 import { demoRepositories, demoSnapshots, demoStates } from "@/lib/demo/portfolio";
 import { appEnv } from "@/lib/env/app-env";
+
+async function getConvexApi() {
+  const { api } = await import("@/convex/_generated/api");
+  return api;
+}
 import type {
   Clock,
   GitHubGateway,
@@ -390,6 +394,7 @@ class ConvexRepoCatalogStore implements RepoCatalogStore {
       return;
     }
 
+    const api = await getConvexApi();
     await this.client.mutation(api.portfolio.upsertRepoCatalogs, {
       repos: repos.map((repo) => ({
         fullName: repo.fullName,
@@ -420,6 +425,7 @@ class ConvexRepoCatalogStore implements RepoCatalogStore {
       return [];
     }
 
+    const api = await getConvexApi();
     const repos = await this.client.query(api.portfolio.listReposByFullNames, {
       fullNames: repoIds,
     });
@@ -454,6 +460,7 @@ class ConvexRepoReadmeStore implements RepoReadmeStore {
   constructor(private readonly client: ConvexHttpClient) {}
 
   async get(repoId: string) {
+    const api = await getConvexApi();
     const readme = await this.client.query(api.portfolio.getRepoReadmeByFullName, {
       repoFullName: repoId,
     });
@@ -474,6 +481,7 @@ class ConvexRepoReadmeStore implements RepoReadmeStore {
       return;
     }
 
+    const api = await getConvexApi();
     await this.client.mutation(api.portfolio.upsertRepoReadmes, {
       readmes: readmes.map((readme) => ({
         repoFullName: readme.repoId,
@@ -492,6 +500,7 @@ class ConvexUserRepoStateStore implements UserRepoStateStore {
       return;
     }
 
+    const api = await getConvexApi();
     await this.client.mutation(api.portfolio.upsertStarEdges, {
       authUserId: userId,
       edges: edges.map((edge) => ({
@@ -508,6 +517,7 @@ class ConvexUserRepoStateStore implements UserRepoStateStore {
   }
 
   async listByUser(userId: string) {
+    const api = await getConvexApi();
     const states = await this.client.query(api.portfolio.listUserRepoStates, {
       authUserId: userId,
     });
@@ -525,6 +535,8 @@ class ConvexUserRepoStateStore implements UserRepoStateStore {
   }
 
   async save(state: UserRepoState) {
+    await this.upsertStarEdges(state.userId, [{ repo: { fullName: state.repoId } as RepoCatalog, starredAt: state.starredAt }], state.lastTouchedAt ?? state.starredAt);
+    const api = await getConvexApi();
     await this.client.mutation(api.portfolio.changeRepoState, {
       authUserId: state.userId,
       repoFullName: state.repoId,
@@ -542,6 +554,7 @@ class ConvexUserNoteStore implements UserNoteStore {
   constructor(private readonly client: ConvexHttpClient) {}
 
   async create(note: UserNote) {
+    const api = await getConvexApi();
     await this.client.mutation(api.portfolio.addNote, {
       authUserId: note.userId,
       repoFullName: note.repoId,
@@ -552,6 +565,7 @@ class ConvexUserNoteStore implements UserNoteStore {
   }
 
   async listByUser(userId: string) {
+    const api = await getConvexApi();
     const notes = await this.client.query(api.portfolio.listUserNotes, {
       authUserId: userId,
     });
@@ -580,6 +594,7 @@ class ConvexPortfolioEventStore implements PortfolioEventStore {
       return;
     }
 
+    const api = await getConvexApi();
     await this.client.mutation(api.portfolio.appendPortfolioEvents, {
       authUserId: events[0].userId,
       events: events.map((event) => ({
@@ -595,6 +610,7 @@ class ConvexPortfolioEventStore implements PortfolioEventStore {
   }
 
   async listByUser(userId: string) {
+    const api = await getConvexApi();
     const events = await this.client.query(api.portfolio.listPortfolioEvents, {
       authUserId: userId,
     });
@@ -623,6 +639,7 @@ class ConvexSnapshotStore implements SnapshotStore {
       return [];
     }
 
+    const api = await getConvexApi();
     const snapshots = await this.client.query(api.portfolio.listRepoSnapshotsByFullNames, {
       fullNames: repoIds,
     });
@@ -649,6 +666,7 @@ class ConvexSnapshotStore implements SnapshotStore {
       return;
     }
 
+    const api = await getConvexApi();
     await this.client.mutation(api.portfolio.saveRepoSnapshots, {
       snapshots: snapshots.map((snapshot) => ({
         repoFullName: snapshot.repoId,
@@ -669,6 +687,7 @@ class ConvexReportSnapshotStore implements ReportSnapshotStore {
   constructor(private readonly client: ConvexHttpClient) {}
 
   async save(userId: string, report: ReportSnapshot) {
+    const api = await getConvexApi();
     await this.client.mutation(api.reports.storeReport, {
       authUserId: userId,
       period: report.period,
@@ -687,6 +706,7 @@ class ConvexReportSnapshotStore implements ReportSnapshotStore {
   }
 
   async listByUser(userId: string) {
+    const api = await getConvexApi();
     const reports = await this.client.query(api.reports.listReports, {
       authUserId: userId,
     });
@@ -1277,12 +1297,14 @@ function getConvexRuntime(): PortfolioRuntime {
   const clock = new SystemClock();
 
   async function loadConnection(userId: string) {
+    const api = await getConvexApi();
     return await client.query(api.portfolio.getGitHubConnection, {
       authUserId: userId,
     });
   }
 
   async function loadConnectionWithAccessToken(userId: string) {
+    const api = await getConvexApi();
     return await client.query(api.portfolio.getGitHubConnectionWithAccessToken, {
       authUserId: userId,
     });
@@ -1300,6 +1322,7 @@ function getConvexRuntime(): PortfolioRuntime {
       });
 
       const result = await service(request.userId);
+      const api = await getConvexApi();
       await client.mutation(api.portfolio.upsertGitHubConnection, {
         authUserId: request.userId,
         githubUserId: request.githubUserId,

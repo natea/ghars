@@ -67,13 +67,7 @@ async function findRepoByFullName(
     .withIndex("by_fullName", (q) => q.eq("fullName", fullName))
     .unique();
 
-  if (exact) {
-    return exact;
-  }
-
-  const normalized = fullName.toLowerCase();
-  const allRepos = await ctx.db.query("repoCatalog").collect();
-  return allRepos.find((repo) => repo.fullName.toLowerCase() === normalized) ?? null;
+  return exact;
 }
 
 function serializeRepoCatalog(repo: {
