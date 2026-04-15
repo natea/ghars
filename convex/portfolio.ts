@@ -220,7 +220,7 @@ export const listPortfolioEvents = query({
       .query("portfolioEvents")
       .withIndex("by_authUserId", (q) => q.eq("authUserId", args.authUserId))
       .order("desc")
-      .collect();
+      .take(8192);
 
     const allRepos = await ctx.db.query("repoCatalog").collect();
     const fullNameByRepoId = new Map(
@@ -709,43 +709,45 @@ export const listRepoSnapshotsByFullNames = query({
     })
   ),
   handler: async (ctx, args) => {
-    const normalizedFullNames = [...new Set(args.fullNames.map((fullName) => fullName.toLowerCase()))];
-    const repoCatalog = await ctx.db.query("repoCatalog").collect();
-    const repos = normalizedFullNames
-      .map((fullName) => repoCatalog.find((repo) => repo.fullName.toLowerCase() === fullName) ?? null)
-      .filter((repo): repo is NonNullable<typeof repo> => Boolean(repo));
+    const requestedNames = new Set(args.fullNames.map((n) => n.toLowerCase()));
+    const allRepos = await ctx.db.query("repoCatalog").collect();
+    const repos = allRepos.filter((repo) => requestedNames.has(repo.fullName.toLowerCase()));
     const repoIds = repos.map((repo) => repo._id);
     const fullNameByRepoId = new Map(repos.map((repo) => [repo._id, repo.fullName]));
 
-    const snapshots = await Promise.all(
-      repoIds.map(async (repoId) => ({
-        repoId,
-        items: await ctx.db
-          .query("repoSnapshots")
-          .withIndex("by_repoId", (q) => q.eq("repoId", repoId))
-          .order("desc")
-          .take(16),
-      }))
-    );
+    const repoIdSet = new Set(repoIds.map((id) => id.toString()));
+    const allSnapshots = await ctx.db.query("repoSnapshots").collect();
 
-    return snapshots.flatMap(({ repoId, items }) => {
-      const repoFullName = fullNameByRepoId.get(repoId);
-      if (!repoFullName) {
-        return [];
+    const snapshotsByRepoId = new Map<string, typeof allSnapshots>();
+    for (const snapshot of allSnapshots) {
+      if (!repoIdSet.has(snapshot.repoId.toString())) continue;
+      const key = snapshot.repoId.toString();
+      const existing = snapshotsByRepoId.get(key) ?? [];
+      existing.push(snapshot);
+      snapshotsByRepoId.set(key, existing);
+    }
+
+    const results = [];
+    for (const [repoIdStr, items] of snapshotsByRepoId) {
+      const repoFullName = fullNameByRepoId.get(repoIdStr as any);
+      if (!repoFullName) continue;
+
+      items.sort((a, b) => b.capturedAt - a.capturedAt);
+      for (const snapshot of items.slice(0, 16)) {
+        results.push({
+          repoFullName,
+          capturedAt: snapshot.capturedAt,
+          stars: snapshot.stars,
+          forks: snapshot.forks,
+          openIssues: snapshot.openIssues,
+          pushedAt: snapshot.pushedAt,
+          latestReleaseAt: snapshot.latestReleaseAt,
+          momentumScore: snapshot.momentumScore,
+          neglectScore: snapshot.neglectScore,
+        });
       }
-
-      return items.map((snapshot) => ({
-        repoFullName,
-        capturedAt: snapshot.capturedAt,
-        stars: snapshot.stars,
-        forks: snapshot.forks,
-        openIssues: snapshot.openIssues,
-        pushedAt: snapshot.pushedAt,
-        latestReleaseAt: snapshot.latestReleaseAt,
-        momentumScore: snapshot.momentumScore,
-        neglectScore: snapshot.neglectScore,
-      }));
-    });
+    }
+    return results;
   },
 });
 

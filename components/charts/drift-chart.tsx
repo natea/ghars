@@ -19,10 +19,13 @@ export function DriftChart({ rows }: DriftChartProps) {
   const seriesKeys = Array.from(
     new Set(rows.flatMap((row) => Object.keys(row).filter((key) => key !== "month")))
   );
-  const maxValue = Math.max(
-    1,
-    ...rows.flatMap((row) => seriesKeys.map((key) => Number(row[key] ?? 0)))
-  );
+  let maxValue = 1;
+  for (const row of rows) {
+    for (const key of seriesKeys) {
+      const v = Number(row[key] ?? 0);
+      if (v > maxValue) maxValue = v;
+    }
+  }
   const yFor = (value: number) => chartBottom - (value / maxValue) * (chartBottom - chartTop);
   const xFor = (index: number) =>
     chartLeft + (index / Math.max(rows.length - 1, 1)) * (chartRight - chartLeft);
